@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import sys
 import numpy as np
 from collections import deque
 import argparse
@@ -14,7 +13,7 @@ from enum import Enum
 import json
 import os
 from dataclasses import dataclass
-from typing import Optional, List, Tuple
+from typing import Optional
 
 image_queue = Queue(maxsize=6)
 detection_queue = Queue(maxsize=2)
@@ -59,8 +58,8 @@ class FPSCounter:
 class BallState(Enum):
     INITIAL = "Initial"
     RISING = "Rising"
-    PEAK_DETECTED = "Peak_Detected"  # 新增：检测到峰值
-    PROCESSING = "Processing"  # 新增：处理峰值帧
+    PEAK_DETECTED = "Peak_Detected"  
+    PROCESSING = "Processing"  
     FALLING = "Falling"
 
 # 帧数据结构
@@ -69,7 +68,6 @@ class FrameData:
     timestamp: float
     bbox: Optional[np.ndarray]  # 2D边界框
     y_bottom: float  # 底部Y坐标
-    image: Optional[np.ndarray] = None  # 原始图像（可选）
     detection: Optional[object] = None  # YOLO检测结果
     processed: bool = False  # 是否已处理深度
 
@@ -301,7 +299,6 @@ class PerspectiveVolleyballCounter:
             timestamp=current_time,
             bbox=bbox,
             y_bottom=y_bottom,
-            image=None,
             detection=None,
             processed=False
         )
@@ -359,8 +356,7 @@ class PerspectiveVolleyballCounter:
         
         max_height_frame = None
         max_height_y = float('inf')
-        max_height_depth = 0
-        
+
         # 处理每个缓冲帧
         for i, frame in enumerate(self.peak_frames_to_process):
             if frame.detection and not frame.processed:
@@ -411,7 +407,7 @@ class PerspectiveVolleyballCounter:
                 print(f"  最高点Y坐标: {max_height_y:.1f}px")
                 print(f"  置信度: {result['confidence']:.2f}")
             else:
-                print(f"\n✗ 高度不足！")
+                print("\n✗ 高度不足！")
                 print(f"  最高点深度: {result['depth']:.2f}m")
                 print(f"  最高点Y坐标: {max_height_y:.1f}px")
                 print(f"  置信度: {result['confidence']:.2f}")
@@ -483,7 +479,7 @@ class PerspectiveVolleyballCounter:
             status_lines.append(f"Current State: {self.current_state.value}")
             
             if self.current_state == BallState.PROCESSING:
-                status_lines.append(f"Processing Peak Frames...")
+                status_lines.append("Processing Peak Frames...")
             else:
                 status_lines.append(f"Buffer: {len(self.frame_buffer)}/{BUFFER_SIZE} frames")
 
@@ -540,7 +536,7 @@ def torch_thread(weights, img_size, conf_thres=0.25, iou_thres=0.55):
     # Check if model file exists
     if not os.path.exists(weights):
         print(f"Error: Model file not found at {weights}")
-        print(f"Please ensure the model file is placed at the correct location")
+        print("Please ensure the model file is placed at the correct location")
         exit_signal = True
         return
 
@@ -584,11 +580,6 @@ def torch_thread(weights, img_size, conf_thres=0.25, iou_thres=0.55):
 
 def render_2D_perspective(image, image_scale, objects, process_depth=False):
     """Perspective-based 2D rendering with conditional depth processing"""
-    global volleyball_counter, reference_system
-    
-    # Draw reference lines first (if calibrated) - 6 points connection
-    if reference_system and reference_system.is_calibrated:
-        reference_system.visualize_reference(image)
 
     # Process currently detected objects
     ball_depth = None
@@ -657,7 +648,7 @@ def render_2D_perspective(image, image_scale, objects, process_depth=False):
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
     
     # Draw reference lines and judgment results (with 6 points connection)
-    if process_depth and reference_system and reference_system.is_calibrated and ball_depth and ball_y:
+    if reference_system and reference_system.is_calibrated and ball_depth is not None and ball_y is not None:
         reference_system.visualize_reference(image, ball_depth, ball_y, ref_y)
     
     # Display exam status information with better visibility
@@ -695,8 +686,7 @@ def render_2D_perspective(image, image_scale, objects, process_depth=False):
 camera_fps = 0.0
 
 def main():
-    global exit_signal, volleyball_counter, camera_fps, inference_fps, reference_system
-    
+    global exit_signal, volleyball_counter, camera_fps, reference_system
     # Check model file before starting
     if not os.path.exists(opt.weights):
         print(f"Error: Model file not found at {opt.weights}")
@@ -748,7 +738,7 @@ def main():
             port = int(port)
             init_params.set_from_stream(ip_address, port)
         except ValueError:
-            print(f"Invalid IP format. Please use format: IP:PORT")
+            print("Invalid IP format. Please use format: IP:PORT")
             exit()
     elif opt.svo is not None:
         input_type = sl.InputType()
@@ -803,17 +793,17 @@ def main():
     # FPS counter
     fps_counter = FPSCounter(window_size=30)
     
-    print("\n排球垫球计数系统 (优化版)")
+    print("\n排球垫球计数系统")
     print("操作说明:")
     print("- 按 'Q' 开始/结束考试")
     print("- 按 'ESC' 退出程序")
-    print(f"\n标准杆高度: 2.35m")
+    print("\n标准杆高度: 2.35m")
     print(f"缓冲帧数: {BUFFER_SIZE}")
     print(f"峰值检测阈值: {PEAK_THRESHOLD}px\n")
     
     # Create window
-    cv2.namedWindow("Volleyball Counter - Optimized", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("Volleyball Counter - Optimized", display_resolution.width, display_resolution.height)
+    cv2.namedWindow("Volleyball Counter", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Volleyball Counter", display_resolution.width, display_resolution.height)
     
     # Flag variables
     detections = []
