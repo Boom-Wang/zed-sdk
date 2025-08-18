@@ -2,6 +2,7 @@
 import numpy as np
 from collections import deque
 import argparse
+from itertools import islice
 import torch
 import cv2
 import pyzed.sl as sl
@@ -266,17 +267,17 @@ class PerspectiveVolleyballCounter:
     def prepare_peak_frames(self):
         """准备峰值前后的帧用于深度处理"""
         with self.processing_lock:
-            buffer_list = list(self.frame_buffer)
+            buffer_length = len(self.frame_buffer)
             
             # 找到峰值帧（最后添加的帧）
-            if len(buffer_list) > 0:
-                peak_index = len(buffer_list) - 1
-                
+            if buffer_length > 0:
+                peak_index = buffer_length - 1
+
                 # 获取峰值前后的帧
                 start_idx = max(0, peak_index - PROCESS_FRAMES_BEFORE)
-                end_idx = min(len(buffer_list), peak_index + PROCESS_FRAMES_AFTER + 1)
-                
-                self.peak_frames_to_process = buffer_list[start_idx:end_idx]
+                end_idx = min(buffer_length, peak_index + PROCESS_FRAMES_AFTER + 1)
+
+                self.peak_frames_to_process = list(islice(self.frame_buffer, start_idx, end_idx))
                 self.peak_frame_index = peak_index - start_idx  # 相对索引
                 
                 print(f"准备处理 {len(self.peak_frames_to_process)} 帧（峰值前{peak_index - start_idx}帧，峰值后{end_idx - peak_index - 1}帧）")
@@ -290,7 +291,6 @@ class PerspectiveVolleyballCounter:
             return
         
         current_time = time()
-        
         # 记录Y坐标历史
         self.y_history.append((current_time, y_bottom, None))
         
@@ -788,8 +788,6 @@ def main():
     
     # Create display image
     image_left_ocv = np.zeros((display_resolution.height, display_resolution.width, 4), np.uint8)
-    image_left = sl.Mat()
-    
     # FPS counter
     fps_counter = FPSCounter(window_size=30)
     
@@ -804,7 +802,7 @@ def main():
     # Create window
     cv2.namedWindow("Volleyball Counter", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("Volleyball Counter", display_resolution.width, display_resolution.height)
-    
+
     # Flag variables
     detections = []
     last_detection = None
@@ -816,15 +814,16 @@ def main():
                 camera_fps = fps_counter.update()
 
                 # Get image for inference
-                zed.retrieve_image(image_left_tmp, sl.VIEW.LEFT)
-                image_net = image_left_tmp.get_data()
+                zed.retrieve_image(image_left_tmp, sl.VIEW.LEFT, sl.MEM.CPU, display_resolution)
+                image_data = image_left_tmp.get_data()
                 
                 # Copy image data to queue
-                if image_net is not None and image_net.size > 0:
+                if image_data is not None and image_data.size > 0:
+                    np.copyto(image_left_ocv, image_data)
                     try:
                         if image_queue.full():
                             image_queue.get_nowait()
-                        image_queue.put(image_net.copy())
+                        image_queue.put(image_left_ocv)
                     except:
                         pass
                 
@@ -867,21 +866,10 @@ def main():
                 # 获取跟踪的对象（用于显示）
                 if process_depth or (detections and len(detections) > 0):
                     zed.retrieve_objects(objects, obj_runtime_param)
-                
-                # Get display image
-                zed.retrieve_image(image_left, sl.VIEW.LEFT, sl.MEM.CPU, display_resolution)
-                
-                # Copy image data to OpenCV format
-                image_data_gpu = image_left.get_data()
-                if image_data_gpu is not None:
-                    np.copyto(image_left_ocv, image_data_gpu)
-                    
-                    # Render objects and information
-                    render_2D_perspective(image_left_ocv, image_scale, objects, process_depth)
-                    
-                    # Display image
-                    cv2.imshow("Volleyball Counter - Optimized", image_left_ocv)
-                
+
+                render_2D_perspective(image_left_ocv, image_scale, objects, process_depth)
+                cv2.imshow("Volleyball Counter", image_left_ocv)
+
                 # Keyboard control
                 key = cv2.waitKey(1)
                 if key == 27:  # ESC
