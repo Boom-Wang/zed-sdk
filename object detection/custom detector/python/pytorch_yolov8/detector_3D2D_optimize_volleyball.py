@@ -897,10 +897,7 @@ def main():
                 except Empty:
                     detections = last_detection  # 使用上一次的检测结果
                 
-                # 修正的主循环处理逻辑
                 process_depth = False
-                
-                # 始终注入当前检测结果（无论什么状态）
                 if detections and len(detections) > 0:
                     zed.ingest_custom_box_objects(detections)
                     
