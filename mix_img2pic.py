@@ -21,7 +21,7 @@ def get_next_number(output_dir):
             try:
                 # 提取文件名中的数字部分
                 name_without_ext = filename.split('.')[0]
-                num_str = name_without_ext.split('_')[1]
+                num_str = name_without_ext.split('left')[1]
                 num = int(num_str)
                 max_num = max(max_num, num)
             except (ValueError, IndexError):
@@ -80,42 +80,6 @@ def move_images_from_folder(input_img_path, output_img_path):
     
     return moved_count
 
-def main():
-    """
-    主函数：处理多个输入文件夹
-    """
-    # 示例1：处理单个文件夹
-    print("=== 处理单个文件夹示例 ===")
-    input_img_path = "path/to/your/input/folder1"  # 请修改为您的输入文件夹路径
-    output_img_path = "path/to/your/output/folder"  # 请修改为您的输出文件夹路径
-    
-    # 执行剪切操作
-    count = move_images_from_folder(input_img_path, output_img_path)
-    print(f"从 '{input_img_path}' 成功剪切了 {count} 个图片文件\n")
-    
-    # 示例2：处理多个文件夹
-    print("=== 处理多个文件夹示例 ===")
-    # 定义多个输入文件夹
-    input_folders = [
-        "/home/laplace/data/ZED-img-Volleyball",
-        "/home/laplace/data/ZED-img-Volleyball-2",
-        "/home/laplace/data/ZED-img-Volleyball-3",
-        # 添加更多文件夹路径...
-    ]
-    
-    # 统一的输出文件夹
-    output_img_path = "/home/laplace/data/ZED-Volleyball-7-30"
-    
-    # 处理每个输入文件夹
-    total_moved = 0
-    for idx, input_img_path in enumerate(input_folders, 1):
-        print(f"\n处理第 {idx} 个文件夹: {input_img_path}")
-        count = move_images_from_folder(input_img_path, output_img_path)
-        total_moved += count
-        print(f"从该文件夹剪切了 {count} 个图片文件")
-    
-    print(f"\n总计：从 {len(input_folders)} 个文件夹中成功剪切了 {total_moved} 个图片文件")
-
 # 便捷函数：直接处理单个文件夹
 def process_single_folder():
     """
@@ -134,12 +98,11 @@ def process_multiple_folders():
     """
     便捷函数：交互式处理多个文件夹
     """
-    output_img_path = "/home/laplace/data/ZED-Volleyball-7-30"
+    output_img_path = "/home/laplace/data/V-ball-8-20"
     
     input_folders = [
-        "/home/laplace/data/ZED-img-Volleyball",
-        "/home/laplace/data/ZED-img-Volleyball-2",
-        "/home/laplace/data/ZED-img-Volleyball-3"
+        "/home/laplace/data/ZED-SVGA-Volleyball",
+        "/home/laplace/data/ZED-SVGA-Volleyball1"
     ]
 
     # 处理所有文件夹
