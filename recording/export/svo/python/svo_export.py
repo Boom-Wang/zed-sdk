@@ -141,8 +141,8 @@ def main(opt):
                 video_writer.write(ocv_image_sbs_rgb)
             else:
                 # Generate file names
-                filename1 = output_dir +"/"+ ("left%s.png" % str(svo_position).zfill(6))
-                filename2 = output_dir +"/"+ (("right%s.png" if app_type == AppType.LEFT_AND_RIGHT
+                filename1 = output_dir +"/"+ ("left_%s.png" % str(svo_position).zfill(6))
+                filename2 = output_dir +"/"+ (("right_%s.png" if app_type == AppType.LEFT_AND_RIGHT
                                            else "depth%s.png") % str(svo_position).zfill(6))
                 # Save Left images
                 cv2.imwrite(str(filename1), left_image.get_data())
@@ -171,7 +171,7 @@ def main(opt):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--mode', type = int, help= " Mode 0 is to export LEFT+RIGHT AVI. \n Mode 1 is to export LEFT+DEPTH_VIEW Avi. \n Mode 2 is to export LEFT+RIGHT image sequence. \n Mode 3 is to export LEFT+DEPTH_View image sequence. \n Mode 4 is to export LEFT+DEPTH_16BIT image sequence.", default=2)
-    parser.add_argument('--input_svo_file', type=str, help='Path to the .svo file', default='/home/laplace/data/V-ball-8-20/SVGA_SN49696040_15-22-48.svo2')
+    parser.add_argument('--input_svo_file', type=str, help='Path to the .svo file', default='/home/laplace/data/HD720_SN32921223_14-20-47.svo2')
     parser.add_argument('--output_avi_file', type=str, help='Path to the output .avi file, if mode includes a .avi export', default = '')
     parser.add_argument('--output_path_dir', type = str, help = 'Path to a directory, where .png will be written, if mode includes image sequence export', default = '/home/laplace/data/ZED-SVGA-Volleyball')
     opt = parser.parse_args()

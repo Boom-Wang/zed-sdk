@@ -176,12 +176,12 @@ class PrecisePerspectiveSystem:
                     (200, 200, 200), 1)
         
         # 如果球信息存在，绘制球的深度和参考线
-        if ball_depth is not None and ref_y is not None:
-            cv2.line(image, (50, int(ref_y)), (image.shape[1] - 50, int(ref_y)), 
-                    (0, 255, 0), 2, cv2.LINE_AA)
-            cv2.putText(image, f"Standard@{ball_depth:.1f}m", 
-                       (image.shape[1] - 180, int(ref_y) - 5), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        # if ball_depth is not None and ref_y is not None:
+            # cv2.line(image, (50, int(ref_y)), (image.shape[1] - 50, int(ref_y)), 
+            #         (0, 255, 0), 2, cv2.LINE_AA)
+            # cv2.putText(image, f"Standard@{ball_depth:.1f}m", 
+            #            (image.shape[1] - 180, int(ref_y) - 5), 
+            #            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         return image
 
 class PerspectiveVolleyballCounter:

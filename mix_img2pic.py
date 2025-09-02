@@ -98,11 +98,12 @@ def process_multiple_folders():
     """
     便捷函数：交互式处理多个文件夹
     """
-    output_img_path = "/home/laplace/data/V-ball-8-20"
+    output_img_path = "/home/laplace/data/ZED-2i-Volleyball"
     
     input_folders = [
         "/home/laplace/data/ZED-SVGA-Volleyball",
-        "/home/laplace/data/ZED-SVGA-Volleyball1"
+        "/home/laplace/data/ZED-SVGA-Volleyball1",
+        "/home/laplace/data/ZED-SVGA-Volleyball2"
     ]
 
     # 处理所有文件夹
