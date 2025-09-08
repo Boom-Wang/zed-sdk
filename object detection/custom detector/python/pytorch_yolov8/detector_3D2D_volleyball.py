@@ -457,7 +457,7 @@ def render_2D_perspective(image, image_scale, objects):
             cv2.circle(image, (display_bottom_x, display_bottom_y), 5, (255, 0, 0), -1)
             
             # Display depth information
-            distance = np.linalg.norm(obj.position) if obj.position[0] != 0 else 0
+            distance = obj.position[2] if np.isfinite(obj.position[2]) else 0.0
             label_text = f"D={distance:.2f}m"
             
             cv2.putText(image, label_text,
