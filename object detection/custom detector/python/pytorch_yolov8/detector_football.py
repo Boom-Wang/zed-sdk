@@ -429,13 +429,13 @@ def main():
     zed = sl.Camera()
     init_params = sl.InitParameters()
     init_params.coordinate_units = sl.UNIT.METER
-    init_params.depth_mode = sl.DEPTH_MODE.NEURAL_LIGHT
-    init_params.camera_fps = 40
+    init_params.depth_mode = sl.DEPTH_MODE.NONE
+    init_params.camera_fps = 60
     init_params.camera_resolution = sl.RESOLUTION.HD720
-    init_params.coordinate_system = sl.COORDINATE_SYSTEM.LEFT_HANDED_Y_UP
-    init_params.depth_maximum_distance = 10.0
-    init_params.depth_minimum_distance = 0.5
-    init_params.depth_stabilization = 50
+    # init_params.coordinate_system = sl.COORDINATE_SYSTEM.LEFT_HANDED_Y_UP
+    # init_params.depth_maximum_distance = 10.0
+    # init_params.depth_minimum_distance = 0.5
+    # init_params.depth_stabilization = 50
 
     runtime_params = sl.RuntimeParameters()
     if zed.open(init_params) != sl.ERROR_CODE.SUCCESS:
@@ -443,11 +443,11 @@ def main():
         return
 
     # 仅对象跟踪
-    obj_param = sl.ObjectDetectionParameters()
-    obj_param.detection_model = sl.OBJECT_DETECTION_MODEL.CUSTOM_BOX_OBJECTS
-    obj_param.enable_tracking = True
-    obj_param.enable_segmentation = False
-    zed.enable_object_detection(obj_param)
+    # obj_param = sl.ObjectDetectionParameters()
+    # obj_param.detection_model = sl.OBJECT_DETECTION_MODEL.CUSTOM_BOX_OBJECTS
+    # obj_param.enable_tracking = True
+    # obj_param.enable_segmentation = False
+    # zed.enable_object_detection(obj_param)
 
     # 分辨率与缩放
     cam_info = zed.get_camera_information()
