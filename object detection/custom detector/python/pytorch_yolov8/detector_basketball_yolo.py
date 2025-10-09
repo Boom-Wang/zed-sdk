@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Basketball Shooting Detection System
-Detects and counts basketball shots using ROI regions (backboard, above hoop, net)
+Basketball Shooting Detection System (YOLO Track Version)
+Detects and counts basketball shots using ROI regions with YOLO tracking
+No depth information required
 """
 
 import sys
@@ -21,9 +22,10 @@ import os
 
 # Global queues for thread communication
 image_queue = Queue(maxsize=6)
-detection_queue = Queue(maxsize=2)
+detection_queue = Queue(maxsize=4)
 exit_signal = False
 inference_fps = 0.0
+camera_fps = 0.0
 
 # Exam related parameters
 class ExamState(Enum):
@@ -34,14 +36,11 @@ class ExamState(Enum):
 # Basketball shooting state machine
 class ShootingState(Enum):
     PREPARE = "Prepare"
-    INTERSECTED = "Intersected"  # Ball intersecting with backboard ROI, collecting data
+    INTERSECTED = "Intersected"  # Ball intersecting with backboard ROI
     FINISHED = "Finished"
 
 # Basketball exam parameters
 EXAM_DURATION = 60  # 1 minute exam
-MIN_DEPTH_THRESHOLD = 6.0  # Minimum depth to start tracking (meters)
-SCORING_DEPTH_MIN = 6.8  # Minimum depth for valid score (meters)
-SCORING_DEPTH_MAX = 7.0  # Maximum depth for valid score (meters)
 CONSECUTIVE_FRAMES_REQUIRED = 3  # Consecutive frames required inside ROI
 
 class FPSCounter:
@@ -166,10 +165,11 @@ class BasketballROISystem:
         roi_x, roi_y, roi_w, roi_h = roi_rect
         
         # Get bbox bounds
-        bbox_x_min = min(bbox[0][0], bbox[2][0])
-        bbox_x_max = max(bbox[0][0], bbox[2][0])
-        bbox_y_min = min(bbox[0][1], bbox[2][1])
-        bbox_y_max = max(bbox[0][1], bbox[2][1])
+        x1, y1, x2, y2 = bbox
+        bbox_x_min = min(x1, x2)
+        bbox_x_max = max(x1, x2)
+        bbox_y_min = min(y1, y2)
+        bbox_y_max = max(y1, y2)
         
         # Check intersection
         return not (bbox_x_max < roi_x or 
@@ -251,25 +251,27 @@ class BasketballCounter:
             if self.exam_remaining_time <= 0:
                 self.finish_exam()
     
-    def update(self, bbox, position, label=None):
-        """Update counter with new detection"""
-        if self.exam_state != ExamState.RUNNING:
+    def update(self, bbox_display, label=None):
+        """Update counter with new detection
+        bbox_display: (x1, y1, x2, y2) in display coordinates
+        """
+        if self.exam_state != ExamState.RUNNING or bbox_display is None:
             return
         
-        # Get ball center and depth
-        ball_center_x = (bbox[0][0] + bbox[2][0]) / 2
-        ball_center_y = (bbox[0][1] + bbox[2][1]) / 2
+        x1, y1, x2, y2 = bbox_display
+        
+        # Get ball center
+        ball_center_x = (x1 + x2) / 2
+        ball_center_y = (y1 + y2) / 2
         ball_center = (ball_center_x, ball_center_y)
-        ball_depth = position[2] if np.isfinite(position[2]) else 0.0
         
         # State machine logic
         if self.shooting_state == ShootingState.PREPARE:
-            # Check if ball intersects with backboard ROI and depth > 6m
-            if (self.roi_system.check_bbox_intersection(bbox, 'backboard') and 
-                ball_depth > MIN_DEPTH_THRESHOLD):
+            # Check if ball intersects with backboard ROI
+            if self.roi_system.check_bbox_intersection(bbox_display, 'backboard'):
                 self.shooting_state = ShootingState.INTERSECTED
                 self.current_shot_data = []
-                print(f"开始记录投篮数据 (深度: {ball_depth:.2f}m)")
+                print(f"开始记录投篮数据")
         
         elif self.shooting_state == ShootingState.INTERSECTED:
             # Check if ball center is still in backboard ROI
@@ -277,8 +279,7 @@ class BasketballCounter:
                 # Record data
                 self.current_shot_data.append({
                     'center': ball_center,
-                    'depth': ball_depth,
-                    'bbox': bbox,
+                    'bbox': bbox_display,
                     'time': time(),
                     'label': label
                 })
@@ -321,26 +322,19 @@ class BasketballCounter:
             print("未满足条件B (篮筐上方)，判定为出界")
             return
         
-        # Find C intersection (must be after B)
+        # Check for ball_in label
         ball_in_detected = False
         for i in range(b_intersection_idx + 1, len(self.current_shot_data)):
             if self.current_shot_data[i].get('label') == 'ball_in':
                 ball_in_detected = True
                 break
+        
         if ball_in_detected:
-            depth_valid = True
-            for data in self.current_shot_data[b_intersection_idx:]:
-                if not (SCORING_DEPTH_MIN <= data['depth'] <= SCORING_DEPTH_MAX):
-                    depth_valid = False
-                    break
-            if depth_valid:
-                self.shot_count += 1
-                print(f"Ball In! Score: {self.shot_count}")
-                return
-            else:
-                print(f"Ball label is 'ball_in', But the 'Depth' is Out.")
-                return
-
+            self.shot_count += 1
+            print(f"Ball In! Score: {self.shot_count}")
+            return
+        
+        # Find C intersection (must be after B)
         for i in range(b_intersection_idx + 1, len(self.current_shot_data)):
             if self.roi_system.check_bbox_intersection(self.current_shot_data[i]['bbox'], 'net'):
                 c_intersection_idx = i
@@ -363,17 +357,6 @@ class BasketballCounter:
             print("未满足条件C (篮网)，判定为出界")
             return
         
-        # Check depth requirement
-        depth_valid = True
-        for data in self.current_shot_data[b_intersection_idx:]:
-            if not (SCORING_DEPTH_MIN <= data['depth'] <= SCORING_DEPTH_MAX):
-                depth_valid = False
-                break
-        
-        if not depth_valid:
-            print(f"深度不在有效范围 ({SCORING_DEPTH_MIN}-{SCORING_DEPTH_MAX}m)，判定为出界")
-            return
-        
         # All conditions met - score!
         self.shot_count += 1
         print(f"投篮进球！当前得分：{self.shot_count}")
@@ -383,17 +366,17 @@ class BasketballCounter:
         status_lines = []
         
         if self.exam_state == ExamState.IDLE:
-            status_lines.append("状态: 等待开始")
-            status_lines.append("按 'Q' 开始考试")
+            status_lines.append("Status: Waiting")
+            status_lines.append("Press 'Q' to start")
         elif self.exam_state == ExamState.RUNNING:
-            status_lines.append(f"考试进行中")
-            status_lines.append(f"剩余时间: {int(self.exam_remaining_time)}秒")
-            status_lines.append(f"投进球数: {self.shot_count}")
-            status_lines.append(f"投篮状态: {self.shooting_state.value}")
+            status_lines.append("Exam in progress")
+            status_lines.append(f"Time left: {int(self.exam_remaining_time)}s")
+            status_lines.append(f"Score: {self.shot_count}")
+            status_lines.append(f"Shooting State: {self.shooting_state.value}")
         elif self.exam_state == ExamState.FINISHED:
-            status_lines.append("考试结束")
-            status_lines.append(f"最终得分: {self.shot_count}")
-            status_lines.append("按 'Q' 重新开始")
+            status_lines.append("Exam finished")
+            status_lines.append(f"Final Score: {self.shot_count}")
+            status_lines.append("Press 'Q' to restart")
         
         return status_lines
 
@@ -401,49 +384,13 @@ class BasketballCounter:
 basketball_counter = None
 roi_system = None
 
-def xywh2abcd(xywh, im_shape):
-    """Convert YOLO format to custom box format"""
-    output = np.zeros((4, 2))
-    x_min = (xywh[0] - 0.5*xywh[2])
-    x_max = (xywh[0] + 0.5*xywh[2])
-    y_min = (xywh[1] - 0.5*xywh[3])
-    y_max = (xywh[1] + 0.5*xywh[3])
-    output[0][0] = x_min
-    output[0][1] = y_min
-    output[1][0] = x_max
-    output[1][1] = y_min
-    output[2][0] = x_max
-    output[2][1] = y_max
-    output[3][0] = x_min
-    output[3][1] = y_max
-    return output
-
-def detections_to_custom_box(detections, im0, model):
-    """Convert detections to custom box format"""
-    output = []
-    for i, det in enumerate(detections):
-        xywh = det.xywh[0]
-        cls_id = int(det.cls[0])
-        label = model.names[cls_id]
-        
-        if label in ['ball_out', 'ball_in']:
-            obj = sl.CustomBoxObjectData()
-            obj.bounding_box_2d = xywh2abcd(xywh, im0.shape)
-            obj.label = cls_id
-            obj.probability = float(det.conf[0])
-            obj.is_grounded = False
-            obj.unique_object_id = sl.generate_unique_id()
-            output.append(obj)
-    return output
-
-def torch_thread(weights, img_size, conf_thres=0.25, iou_thres=0.55):
-    """YOLO inference thread"""
+def torch_thread(weights, img_size, conf_thres, iou_thres, class_names, tracker_type='bytetrack'):
+    """YOLO inference thread with tracking"""
     global exit_signal, inference_fps
     
     # Check if model file exists
     if not os.path.exists(weights):
         print(f"Error: Model file not found at {weights}")
-        print(f"Please ensure the model file is placed at the correct location")
         exit_signal = True
         return
 
@@ -454,31 +401,94 @@ def torch_thread(weights, img_size, conf_thres=0.25, iou_thres=0.55):
         exit_signal = True
         return
     
+    # Parse positive class names
+    positive = set([n.strip().lower() for n in class_names.split(",") if n.strip()])
+    
     inference_fps_counter = FPSCounter(window_size=30)
+    
+    # Track ID storage
+    tracked_id = None
     
     while not exit_signal:
         try:
-            image_data = image_queue.get(timeout=0.1)
-            img_rgb = cv2.cvtColor(image_data, cv2.COLOR_RGBA2RGB)
-            results = model.predict(img_rgb, save=False, imgsz=img_size, verbose=False, 
-                                   conf=conf_thres, iou=iou_thres)[0]
-            det_boxes = results.cpu().numpy().boxes
-            detections = detections_to_custom_box(det_boxes, image_data, model)
-            inference_fps = inference_fps_counter.update()
-            
-            try:
-                if detection_queue.full():
-                    detection_queue.get_nowait()
-                detection_queue.put(detections)
-            except:
-                pass
-                
+            img_bgr = image_queue.get(timeout=0.1)
         except Empty:
             continue
+        
+        try:
+            # Use track method for detection and tracking
+            results = model.track(img_bgr, 
+                                persist=True,
+                                tracker=f"{tracker_type}.yaml",
+                                conf=conf_thres, 
+                                iou=iou_thres,
+                                imgsz=img_size,
+                                verbose=False)
+            
+            # Process tracking results
+            tracked_objects = []
+            if results and len(results) > 0:
+                result = results[0]
+                if result.boxes is not None and len(result.boxes) > 0:
+                    boxes = result.boxes
+                    ids = boxes.id
+                    
+                    for i, box in enumerate(boxes):
+                        cls_id = int(box.cls[0])
+                        label = model.names[cls_id] if hasattr(model, "names") else str(cls_id)
+                        
+                        if label.lower() in positive:
+                            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                            confidence = float(box.conf[0])
+                            
+                            # Get tracking ID
+                            track_id = None
+                            if ids is not None and i < len(ids):
+                                track_id = int(ids[i])
+                            
+                            tracked_objects.append({
+                                'bbox': (float(x1), float(y1), float(x2), float(y2)),
+                                'conf': confidence,
+                                'class': cls_id,
+                                'label': label,
+                                'track_id': track_id
+                            })
+            
+            # Select object to track
+            selected_object = None
+            
+            if len(tracked_objects) > 0:
+                # Prefer same ID if tracking
+                if tracked_id is not None:
+                    for obj in tracked_objects:
+                        if obj['track_id'] == tracked_id:
+                            selected_object = obj
+                            break
+                
+                # Otherwise select highest confidence
+                if selected_object is None:
+                    selected_object = max(tracked_objects, key=lambda x: x['conf'])
+                    if selected_object['track_id'] is not None:
+                        tracked_id = selected_object['track_id']
+                    else:
+                        tracked_id = None
+            else:
+                tracked_id = None
+            
+            inference_fps = inference_fps_counter.update()
+            
+            # Put result in queue
+            if detection_queue.full():
+                try:
+                    detection_queue.get_nowait()
+                except:
+                    pass
+            detection_queue.put(selected_object)
+            
         except Exception as e:
             print(f"Inference Error: {e}")
 
-def render_basketball_view(image, image_scale, objects):
+def render_basketball_view(image, image_scale, tracked_obj):
     """Render basketball detection view"""
     global basketball_counter, roi_system
     
@@ -486,37 +496,43 @@ def render_basketball_view(image, image_scale, objects):
     if roi_system and roi_system.is_calibrated:
         roi_system.draw_rois(image)
     
-    # Process detected objects
-    for obj in objects.object_list:
-        if obj.tracking_state == sl.OBJECT_TRACKING_STATE.OK:
-            # Get bounding box
-            bbox = obj.bounding_box_2d
-            label_name = 'ball_out'
-            # Update counter
-            if basketball_counter:
-                basketball_counter.update(bbox, obj.position, label_name)
-            
-            # Draw bounding box
-            color = (0, 255, 0)
-            thickness = 2
-            
-            cv2.rectangle(image, 
-                         (int(bbox[0][0] * image_scale[0]), int(bbox[0][1] * image_scale[1])),
-                         (int(bbox[2][0] * image_scale[0]), int(bbox[2][1] * image_scale[1])),
-                         color, thickness)
-            
-            # Draw center point
-            center_x = int((bbox[0][0] + bbox[2][0]) / 2 * image_scale[0])
-            center_y = int((bbox[0][1] + bbox[2][1]) / 2 * image_scale[1])
-            cv2.circle(image, (center_x, center_y), 5, (255, 0, 0), -1)
-            
-            # Display depth information
-            distance = obj.position[2] if np.isfinite(obj.position[2]) else 0.0
-            label_text = f"D={distance:.2f}m"
-            
-            cv2.putText(image, label_text,
-                       (int(bbox[0][0] * image_scale[0]), int(bbox[0][1] * image_scale[1]) - 10),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+    # Process detected object
+    bbox_display = None
+    if tracked_obj is not None:
+        x1, y1, x2, y2 = tracked_obj['bbox']
+        
+        # Scale to display resolution
+        x1_disp = int(x1 * image_scale[0])
+        y1_disp = int(y1 * image_scale[1])
+        x2_disp = int(x2 * image_scale[0])
+        y2_disp = int(y2 * image_scale[1])
+        
+        bbox_display = (x1_disp, y1_disp, x2_disp, y2_disp)
+        
+        # Update counter
+        if basketball_counter:
+            basketball_counter.update(bbox_display, tracked_obj['label'])
+        
+        # Draw bounding box
+        color = (0, 255, 0)
+        if basketball_counter and basketball_counter.shooting_state == ShootingState.INTERSECTED:
+            color = (0, 255, 255)
+        
+        cv2.rectangle(image, (x1_disp, y1_disp), (x2_disp, y2_disp), color, 2)
+        
+        # Draw center point
+        center_x = (x1_disp + x2_disp) // 2
+        center_y = (y1_disp + y2_disp) // 2
+        cv2.circle(image, (center_x, center_y), 5, (255, 0, 0), -1)
+        
+        # Display label and tracking info
+        label_text = f"{tracked_obj['label']} ({tracked_obj['conf']:.2f})"
+        if tracked_obj['track_id'] is not None:
+            label_text += f" ID:{tracked_obj['track_id']}"
+        
+        cv2.putText(image, label_text,
+                   (x1_disp, y1_disp - 10),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
     
     # Display status information
     if basketball_counter:
@@ -539,9 +555,6 @@ def render_basketball_view(image, image_scale, objects):
         # Display FPS information
         cv2.putText(image, f"Camera FPS: {camera_fps:.1f} | Inference FPS: {inference_fps:.1f}",
                    (10, image.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-
-# Global FPS variable
-camera_fps = 0.0
 
 def main():
     global exit_signal, basketball_counter, camera_fps, inference_fps, roi_system
@@ -569,23 +582,21 @@ def main():
         'weights': opt.weights, 
         'img_size': opt.img_size, 
         'conf_thres': opt.conf_thres,
-        'iou_thres': opt.iou_thres
+        'iou_thres': opt.iou_thres,
+        'class_names': opt.class_names,
+        'tracker_type': opt.tracker
     })
     capture_thread.start()
     
     print("Initializing Camera...")
     zed = sl.Camera()
     
-    # Initialize parameters
+    # Initialize parameters - depth disabled
     init_params = sl.InitParameters()
     init_params.coordinate_units = sl.UNIT.METER
-    init_params.depth_mode = sl.DEPTH_MODE.NEURAL_LIGHT
+    init_params.depth_mode = sl.DEPTH_MODE.NONE  # Disable depth completely
     init_params.camera_fps = 60
     init_params.camera_resolution = sl.RESOLUTION.HD720
-    init_params.coordinate_system = sl.COORDINATE_SYSTEM.LEFT_HANDED_Y_UP
-    init_params.depth_maximum_distance = 10
-    init_params.depth_minimum_distance = 2.5
-    init_params.depth_stabilization = 10
     
     # Handle input source
     if opt.ip is not None:
@@ -612,29 +623,6 @@ def main():
     image_left_tmp = sl.Mat()
     print("Initialized Camera")
     
-    # Enable position tracking
-    positional_tracking_parameters = sl.PositionalTrackingParameters()
-    positional_tracking_parameters.enable_area_memory = True
-    positional_tracking_parameters.enable_pose_smoothing = True
-    positional_tracking_parameters.set_as_static = True
-    zed.enable_positional_tracking(positional_tracking_parameters)
-    
-    # Configure object detection
-    obj_param = sl.ObjectDetectionParameters()
-    obj_param.detection_model = sl.OBJECT_DETECTION_MODEL.CUSTOM_BOX_OBJECTS
-    obj_param.enable_tracking = True
-    obj_param.enable_segmentation = False
-    obj_param.max_range = 10
-    
-    err = zed.enable_object_detection(obj_param)
-    if err != sl.ERROR_CODE.SUCCESS:
-        print(f"Enable object detection failed: {repr(err)}. Exit program.")
-        zed.close()
-        exit()
-    
-    objects = sl.Objects()
-    obj_runtime_param = sl.ObjectDetectionRuntimeParameters()
-    
     # Display settings
     camera_info = zed.get_camera_information()
     camera_res = camera_info.camera_configuration.resolution
@@ -650,12 +638,11 @@ def main():
     # FPS counter
     fps_counter = FPSCounter(window_size=30)
     
-    print("\n篮球投篮计数系统")
+    print("\n篮球投篮计数系统 (YOLO Track版本)")
     print("操作说明:")
     print("- 按 'Q' 开始/结束考试")
     print("- 按 'ESC' 退出程序")
     print(f"\n投篮规则:")
-    print(f"- 在2.5米线外投篮")
     print(f"- 考试时间: 60秒")
     print(f"- 系统自动判断进球\n")
     
@@ -664,7 +651,7 @@ def main():
     cv2.resizeWindow("Basketball Shot Counter", display_resolution.width, display_resolution.height)
     
     # Detection storage
-    detections = []
+    tracked_obj = None
     
     try:
         while not exit_signal:
@@ -676,27 +663,21 @@ def main():
                 zed.retrieve_image(image_left_tmp, sl.VIEW.LEFT)
                 image_net = image_left_tmp.get_data()
                 
-                # Copy image data to queue
+                # Convert RGBA to BGR for YOLO
                 if image_net is not None and image_net.size > 0:
+                    image_bgr = cv2.cvtColor(image_net, cv2.COLOR_RGBA2BGR)
                     try:
                         if image_queue.full():
                             image_queue.get_nowait()
-                        image_queue.put(image_net.copy())
+                        image_queue.put(image_bgr.copy())
                     except:
                         pass
                 
                 # Get detection results
                 try:
-                    detections = detection_queue.get_nowait()
+                    tracked_obj = detection_queue.get_nowait()
                 except Empty:
                     pass
-                
-                # Inject detections to ZED
-                if detections and len(detections) > 0:
-                    zed.ingest_custom_box_objects(detections)
-                
-                # Get tracked objects
-                zed.retrieve_objects(objects, obj_runtime_param)
                 
                 # Get display image
                 zed.retrieve_image(image_left, sl.VIEW.LEFT, sl.MEM.CPU, display_resolution)
@@ -707,7 +688,7 @@ def main():
                     np.copyto(image_left_ocv, image_data_gpu)
                     
                     # Render view
-                    render_basketball_view(image_left_ocv, image_scale, objects)
+                    render_basketball_view(image_left_ocv, image_scale, tracked_obj)
                     
                     # Display image
                     cv2.imshow("Basketball Shot Counter", image_left_ocv)
@@ -748,6 +729,10 @@ if __name__ == '__main__':
     parser.add_argument('--img_size', type=int, default=640, help='inference size (pixels)')
     parser.add_argument('--conf_thres', type=float, default=0.5, help='object confidence threshold')
     parser.add_argument('--iou_thres', type=float, default=0.45, help='IOU threshold')
+    parser.add_argument('--class_names', type=str, default='ball_out,ball_in', 
+                        help='comma separated class names to detect')
+    parser.add_argument('--tracker', type=str, default='bytetrack',
+                        help='Tracker type: bytetrack or botsort')
     opt = parser.parse_args()
     
     with torch.no_grad():

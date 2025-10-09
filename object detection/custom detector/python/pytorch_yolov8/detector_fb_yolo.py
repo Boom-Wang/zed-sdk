@@ -22,9 +22,7 @@ exit_signal = False
 inference_fps = 0.0
 camera_fps = 0.0
 
-# ----------------------------
-# 考试状态
-# ----------------------------
+
 class ExamState(Enum):
     IDLE = "Idle"
     RUNNING = "Running"
@@ -50,9 +48,6 @@ class FPSCounter:
             self.fps = (len(self.ts)-1)/(self.ts[-1]-self.ts[0])
         return self.fps
 
-# ----------------------------
-# 工具函数
-# ----------------------------
 def torch_thread(weights, img_size, conf_thres, iou_thres, class_names, tracker_type='bytetrack'):
     """YOLO 推理线程（使用内置跟踪）"""
     global exit_signal, inference_fps
@@ -270,9 +265,6 @@ def calculate_angle_between_vectors(v1, v2):
     angle = np.arccos(cos_angle)
     return np.degrees(angle)
 
-# ----------------------------
-# 业务逻辑：2D版射门计数器
-# ----------------------------
 class SoccerCounter:
     def __init__(self, goal_poly_disp, start_p1_disp, start_p2_disp,
                  before_time=1.0, after_time=0.5, angle_threshold=150.0,
@@ -682,7 +674,7 @@ def main():
     parser.add_argument('--conf_thres', type=float, default=0.5)
     parser.add_argument('--iou_thres', type=float, default=0.45)
     parser.add_argument('--class_names', type=str,
-                        default='sports ball,soccer ball,football,ball',
+                        default='ball_in, ball_out',
                         help='comma separated')
     parser.add_argument('--tracker', type=str, default='bytetrack',
                         help='Tracker type: bytetrack or botsort')
