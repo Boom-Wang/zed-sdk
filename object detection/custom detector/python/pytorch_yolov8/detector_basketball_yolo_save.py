@@ -219,8 +219,10 @@ class BasketballCounter:
         self.shooting_state = ShootingState.PREPARE
         self.shot_count = 0
         
-        # Data collection for current shot
+        # Data collection for current shot - now with region markers
         self.current_shot_data = []
+        self.b_region_data = []  # Data specifically in B region
+        self.c_region_data = []  # Data specifically in C region
         
         # Exam state
         self.exam_state = ExamState.IDLE
@@ -235,6 +237,8 @@ class BasketballCounter:
         self.shot_count = 0
         self.shooting_state = ShootingState.PREPARE
         self.current_shot_data = []
+        self.b_region_data = []
+        self.c_region_data = []
         print("\n考试开始！时间：60秒")
     
     def finish_exam(self):
@@ -267,22 +271,46 @@ class BasketballCounter:
         
         # State machine logic
         if self.shooting_state == ShootingState.PREPARE:
-            # Check if ball intersects with backboard ROI
+            # Check if ball bbox intersects with backboard ROI
             if self.roi_system.check_bbox_intersection(bbox_display, 'backboard'):
                 self.shooting_state = ShootingState.INTERSECTED
                 self.current_shot_data = []
+                self.b_region_data = []
+                self.c_region_data = []
                 print(f"开始记录投篮数据")
         
         elif self.shooting_state == ShootingState.INTERSECTED:
             # Check if ball center is still in backboard ROI
             if self.roi_system.check_point_in_roi(ball_center, 'backboard'):
-                # Record data
-                self.current_shot_data.append({
+                # Record general data for the whole backboard region
+                data_point = {
                     'center': ball_center,
                     'bbox': bbox_display,
                     'time': time(),
-                    'label': label
-                })
+                    'label': label,
+                    'region': 'A'  # Mark as backboard region
+                }
+                self.current_shot_data.append(data_point)
+                
+                # Check if center point is in B region and record separately
+                if self.roi_system.check_point_in_roi(ball_center, 'above_hoop'):
+                    b_data = {
+                        'center': ball_center,
+                        'y': ball_center_y,
+                        'label': label
+                    }
+                    self.b_region_data.append(b_data)
+                    data_point['region'] = 'B'  # Update region marker
+                
+                # Check if center point is in C region and record separately
+                if self.roi_system.check_point_in_roi(ball_center, 'net'):
+                    c_data = {
+                        'center': ball_center,
+                        'y': ball_center_y,
+                        'label': label
+                    }
+                    self.c_region_data.append(c_data)
+                    data_point['region'] = 'C'  # Update region marker
             else:
                 # Ball left backboard ROI, analyze the shot
                 self.shooting_state = ShootingState.FINISHED
@@ -295,71 +323,93 @@ class BasketballCounter:
             print("投篮数据不足，判定为出界")
             return
         
-        # Check conditions for scoring
-        b_intersection_idx = -1  # Index when ball intersects with B
-        c_intersection_idx = -1  # Index when ball intersects with C
-        
-        # Find B intersection
-        for i, data in enumerate(self.current_shot_data):
-            if self.roi_system.check_bbox_intersection(data['bbox'], 'above_hoop'):
-                b_intersection_idx = i
-                break
-        
-        # Check for consecutive frames in B after intersection
+        # Check condition B - Above hoop region
         b_condition_met = False
-        if b_intersection_idx >= 0:
-            consecutive_in_b = 0
-            for i in range(b_intersection_idx + 1, len(self.current_shot_data)):
-                if self.roi_system.check_point_in_roi(self.current_shot_data[i]['center'], 'above_hoop'):
-                    consecutive_in_b += 1
-                    if consecutive_in_b >= CONSECUTIVE_FRAMES_REQUIRED:
-                        b_condition_met = True
-                        break
-                else:
-                    consecutive_in_b = 0
         
-        if not b_condition_met:
-            print("未满足条件B (篮筐上方)，判定为出界")
+        if len(self.b_region_data) < 2:
+            print(f"B区域数据不足（仅{len(self.b_region_data)}个），判定为出界")
             return
         
-        # Check for ball_in label
-        ball_in_detected = False
-        for i in range(b_intersection_idx + 1, len(self.current_shot_data)):
-            if self.current_shot_data[i].get('label') == 'ball_in':
-                ball_in_detected = True
-                break
+        # Calculate percentage of increasing y values in B region
+        b_increasing_count = 0
+        for i in range(1, len(self.b_region_data)):
+            if self.b_region_data[i]['y'] > self.b_region_data[i-1]['y']:
+                b_increasing_count += 1
         
-        if ball_in_detected:
-            self.shot_count += 1
-            print(f"Ball In! Score: {self.shot_count}")
+        b_increasing_percentage = (b_increasing_count / (len(self.b_region_data) - 1)) * 100
+        print(f"B区域: {len(self.b_region_data)}个数据点, {b_increasing_percentage:.1f}%递增")
+        
+        if b_increasing_percentage >= 20:
+            b_condition_met = True
+            print("满足条件B (篮筐上方区域)")
+        else:
+            print(f"未满足条件B (需要至少20%递增，实际{b_increasing_percentage:.1f}%)，判定为出界")
             return
         
-        # Find C intersection (must be after B)
-        for i in range(b_intersection_idx + 1, len(self.current_shot_data)):
-            if self.roi_system.check_bbox_intersection(self.current_shot_data[i]['bbox'], 'net'):
-                c_intersection_idx = i
-                break
+        # Check if B happened before C (find first occurrence)
+        b_first_index = -1
+        c_first_index = -1
         
-        # Check for consecutive frames in C after intersection
+        for i, data in enumerate(self.current_shot_data):
+            if b_first_index == -1 and data.get('region') == 'B':
+                b_first_index = i
+            if c_first_index == -1 and data.get('region') == 'C':
+                c_first_index = i
+        
+        # Check condition C - Net region
         c_condition_met = False
-        if c_intersection_idx >= 0:
-            consecutive_in_c = 0
-            for i in range(c_intersection_idx + 1, len(self.current_shot_data)):
-                if self.roi_system.check_point_in_roi(self.current_shot_data[i]['center'], 'net'):
-                    consecutive_in_c += 1
-                    if consecutive_in_c >= 2:   # CONSECUTIVE_FRAMES_REQUIRED
-                        c_condition_met = True
-                        break
-                else:
-                    consecutive_in_c = 0
         
-        if not c_condition_met:
-            print("未满足条件C (篮网)，判定为出界")
+        # Need at least 3 bbox center points and 2 labels in C region
+        c_label_count = sum(1 for d in self.c_region_data if d.get('label') is not None)
+        
+        if len(self.c_region_data) < 3:
+            print(f"C区域bbox数据不足（仅{len(self.c_region_data)}个，需要至少3个），判定为出界")
             return
         
-        # All conditions met - score!
-        self.shot_count += 1
-        print(f"投篮进球！当前得分：{self.shot_count}")
+        if c_label_count < 2:
+            print(f"C区域标签数据不足（仅{c_label_count}个，需要至少2个），判定为出界")
+            return
+        
+        # Calculate percentage of increasing y values in C region
+        c_increasing_count = 0
+        for i in range(1, len(self.c_region_data)):
+            if self.c_region_data[i]['y'] > self.c_region_data[i-1]['y']:
+                c_increasing_count += 1
+        
+        c_increasing_percentage = (c_increasing_count / (len(self.c_region_data) - 1)) * 100
+        
+        # Calculate percentage of 'ball_in' labels in C region
+        ball_in_count = sum(1 for d in self.c_region_data if d.get('label') == 'ball_in')
+        ball_in_percentage = (ball_in_count / c_label_count) * 100 if c_label_count > 0 else 0
+        
+        print(f"C区域: {len(self.c_region_data)}个数据点, {c_increasing_percentage:.1f}%递增, {ball_in_percentage:.1f}% ball_in标签")
+        
+        if c_increasing_percentage >= 30 and ball_in_percentage >= 20:
+            c_condition_met = True
+            print("满足条件C (篮网区域)")
+        else:
+            if c_increasing_percentage < 30:
+                print(f"C区域y轴递增比例不足（需要至少30%，实际{c_increasing_percentage:.1f}%）")
+            if ball_in_percentage < 20:
+                print(f"C区域ball_in标签比例不足（需要至少20%，实际{ball_in_percentage:.1f}%）")
+            print("未满足条件C，判定为出界")
+            return
+        
+        # Check order: B must happen before C
+        if b_first_index == -1 or c_first_index == -1:
+            print("未检测到B或C区域数据，判定为出界")
+            return
+        
+        if b_first_index >= c_first_index:
+            print("顺序错误：需要先进入B区域再进入C区域，判定为出界")
+            return
+        
+        # All conditions met in correct order - score!
+        if b_condition_met and c_condition_met:
+            self.shot_count += 1
+            print(f"投篮进球！当前得分：{self.shot_count}")
+        else:
+            print("条件不完整，判定为出界")
     
     def get_status_text(self):
         """Get status text for display"""
@@ -373,6 +423,9 @@ class BasketballCounter:
             status_lines.append(f"Time Left: {int(self.exam_remaining_time)}s")
             status_lines.append(f"Score: {self.shot_count}")
             status_lines.append(f"Shooting State: {self.shooting_state.value}")
+            if self.shooting_state == ShootingState.INTERSECTED:
+                status_lines.append(f"B Region: {len(self.b_region_data)} pts")
+                status_lines.append(f"C Region: {len(self.c_region_data)} pts")
         elif self.exam_state == ExamState.FINISHED:
             status_lines.append("Exam finished")
             status_lines.append(f"Final Score: {self.shot_count}")
@@ -540,7 +593,7 @@ def render_basketball_view(image, image_scale, tracked_obj):
         
         # Draw semi-transparent background
         overlay = image.copy()
-        cv2.rectangle(overlay, (5, 5), (350, 200), (0, 0, 0), -1)
+        cv2.rectangle(overlay, (5, 5), (350, 250), (0, 0, 0), -1)
         cv2.addWeighted(overlay, 0.3, image, 0.7, 0, image)
         
         # Display status text

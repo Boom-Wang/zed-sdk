@@ -141,8 +141,8 @@ def main(opt):
                 video_writer.write(ocv_image_sbs_rgb)
             else:
                 # Generate file names
-                filename1 = output_dir +"/"+ ("left_1_%s.png" % str(svo_position).zfill(6))
-                filename2 = output_dir +"/"+ (("right_2_%s.png" if app_type == AppType.LEFT_AND_RIGHT
+                filename1 = output_dir +"/"+ ("left_4_%s.png" % str(svo_position).zfill(6))
+                filename2 = output_dir +"/"+ (("right_4_%s.png" if app_type == AppType.LEFT_AND_RIGHT
                                            else "depth%s.png") % str(svo_position).zfill(6))
                 # Save Left images
                 cv2.imwrite(str(filename1), left_image.get_data())
@@ -171,9 +171,9 @@ def main(opt):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--mode', type = int, help= " Mode 0 is to export LEFT+RIGHT AVI. \n Mode 1 is to export LEFT+DEPTH_VIEW Avi. \n Mode 2 is to export LEFT+RIGHT image sequence. \n Mode 3 is to export LEFT+DEPTH_View image sequence. \n Mode 4 is to export LEFT+DEPTH_16BIT image sequence.", default=2)
-    parser.add_argument('--input_svo_file', type=str, help='Path to the .svo file', default='/home/laplace/data/v_2.svo2')
+    parser.add_argument('--input_svo_file', type=str, help='Path to the .svo file', default='/home/laplace/data/ball_out.svo2')
     parser.add_argument('--output_avi_file', type=str, help='Path to the output .avi file, if mode includes a .avi export', default = '')
-    parser.add_argument('--output_path_dir', type = str, help = 'Path to a directory, where .png will be written, if mode includes image sequence export', default = '/home/laplace/data/ZED-720-V')
+    parser.add_argument('--output_path_dir', type = str, help = 'Path to a directory, where .png will be written, if mode includes image sequence export', default = '/home/laplace/data/ZED-basketball-10-8')
     opt = parser.parse_args()
     if opt.mode > 4 or opt.mode < 0 :
         print("Mode shoud be between 0 and 4 included. \n Mode 0 is to export LEFT+RIGHT AVI. \n Mode 1 is to export LEFT+DEPTH_VIEW Avi. \n Mode 2 is to export LEFT+RIGHT image sequence. \n Mode 3 is to export LEFT+DEPTH_View image sequence. \n Mode 4 is to export LEFT+DEPTH_16BIT image sequence.")
